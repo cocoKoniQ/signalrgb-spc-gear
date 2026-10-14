@@ -249,21 +249,22 @@ export function Initialize() {
 		// Ignore
 	}
 
-	// Neutralize all 3 onboard hardware profiles (0, 1, 2) to Mode 6 (Static / Normal Lighting) with Black [0, 0, 0]
-	// This completely eradicates any onboard reactive typing triggers (Traverse, Reaction, Ripples)
+	// Neutralize all 3 onboard hardware profiles (0, 1, 2) in EEPROM to Mode 6 (Static Dark)
+	// Offset = prof * 128 (0x80), Length = 66 bytes (0x42) as reverse-engineered from GK630K binary (func 0x0048A030)
+	// This completely eradicates any onboard reactive typing triggers (Traverse mode 9, Reaction mode 7)
 	// and ensures that even if the MCU evaluates hardware mode, NO pink/colored keys can ever appear.
 	for (let prof = 0; prof < 3; prof++) {
 		sendPacket(0xAA, [], 0, 0);
 		device.pause(5);
-		const cfg = new Array(26).fill(0);
-		cfg[0] = prof; // Profile index
-		cfg[1] = 0x06; // Mode 6 (Normal / Static Lighting in default_light.json)
+		const cfg = new Array(66).fill(0);
+		cfg[0] = prof;
+		cfg[1] = 0x06; // Mode 6 (Static / Normal Lighting)
 		cfg[2] = 2;    // Speed = 2
-		cfg[3] = 0;    // Brightness = 0 (max brightness in firmware)
-		cfg[6] = 0;    // Default R = 0 (Black)
-		cfg[7] = 0;    // Default G = 0 (Black)
-		cfg[8] = 0;    // Default B = 0 (Black)
-		sendPacket(0x06, cfg, prof * 25, 26);
+		cfg[3] = 4;    // Brightness = 0 (Dark: 4 - 0 = 4 in firmware format)
+		const baseOff = prof * 128;
+		sendPacket(0x06, cfg.slice(0, 56), baseOff, 56);
+		device.pause(5);
+		sendPacket(0x06, cfg.slice(56, 66), baseOff + 56, 10);
 		device.pause(5);
 	}
 
@@ -280,9 +281,6 @@ export function Initialize() {
 	sendPacket(0x1C, [], 0, 0);
 	device.pause(10);
 
-	// Reset dirty buffer tracking so first frame sends all chunks
-	lastSentBuffer = null;
-	frameCount = 0;
 	isInitialized = true;
 
 	try {
@@ -348,8 +346,6 @@ export function Shutdown(SystemSuspending) {
 
 let isInitialized = false;
 let isSending = false;
-let lastSentBuffer = null;
-let frameCount = 0;
 
 function sendColors(overrideColor) {
 	if (isSending) {
@@ -437,50 +433,26 @@ function _doSendColors(overrideColor) {
 		}
 	}
 
-	// Stream 378 bytes in 7 chunks: 6x56 bytes + 1x42 bytes via Cmd 0x12 (Real-Time SRAM Streaming)
-	// Exact framing (total 378 bytes) prevents MCU SRAM buffer overrun that caused Esc/F1-F4 flickering.
-	// Configurable packetDelay (default 2ms) gives the 8051 MCU headroom to service typing interrupts without dropping packets.
+	// Stream 378 bytes in 8 chunks of 48 bytes (7x48 + 1x42 = 378 bytes) via Cmd 0x12 (Real-Time SRAM Streaming)
+	// Exact 48-byte multiples of 3 (16 keys * 3 bytes) ensure every packet starts and ends on exact RGB key boundaries.
+	// No key is ever split across packets, completely eliminating byte alignment shifts (pink/magenta/blue glitches) during typing.
+	// Continuous full refresh every frame ensures instant recovery if any USB interrupt is delayed by typing keystrokes.
 	const chunks = [
-		[0, 56],
-		[56, 56],
-		[112, 56],
-		[168, 56],
-		[224, 56],
-		[280, 56],
+		[0, 48],
+		[48, 48],
+		[96, 48],
+		[144, 48],
+		[192, 48],
+		[240, 48],
+		[288, 48],
 		[336, 42]
 	];
 	const delay = (typeof packetDelay !== "undefined") ? Math.max(1, Math.min(5, Number(packetDelay))) : 2;
 
-	frameCount++;
-	// Force full sync periodically (~1 second at 30 FPS) or on initial frame to keep MCU watchdog alive
-	const forceFullSync = !lastSentBuffer || (frameCount >= 30);
-	if (forceFullSync) {
-		frameCount = 0;
-		if (!lastSentBuffer) {
-			lastSentBuffer = new Array(TOTAL_BYTES).fill(-1);
-		}
-	}
-
 	for (let i = 0; i < chunks.length; i++) {
 		const [offset, len] = chunks[i];
-
-		let chunkChanged = forceFullSync;
-		if (!chunkChanged) {
-			for (let b = 0; b < len; b++) {
-				if (buffer[offset + b] !== lastSentBuffer[offset + b]) {
-					chunkChanged = true;
-					break;
-				}
-			}
-		}
-
-		if (chunkChanged) {
-			const chunk = buffer.slice(offset, offset + len);
-			sendPacket(0x12, chunk, offset, len);
-			for (let b = 0; b < len; b++) {
-				lastSentBuffer[offset + b] = buffer[offset + b];
-			}
-			device.pause(delay);
-		}
+		const chunk = buffer.slice(offset, offset + len);
+		sendPacket(0x12, chunk, offset, len);
+		device.pause(delay);
 	}
 }
