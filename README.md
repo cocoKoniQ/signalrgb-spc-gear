@@ -93,8 +93,9 @@ All control packets sent to endpoint `0xFF1C:0x0092` are 64-byte HID Output Repo
 - **Report ID:** `0x04`
 - **Checksum:** 16-bit little-endian sum of bytes 3 through 63 (`sum(packet[3..63]) & 0xFFFF`).
 - **Real-Time LED Streaming:** Command `0x12` writes linear 24-bit RGB values (378 bytes total for 126 matrix slots) in 7 chunk packets ($6 \times 56\text{ bytes} + 1 \times 42\text{ bytes}$).
-- **Software Mode Lock:** `[0x04, 0x8C, 0x00, 0x0B, 0x30, 0x50, 0x01]` (`Cmd 0x0B`) inhibits the MCU watchdog timer from reverting to hardware animations during PC streaming.
-- **Atomic Frame Latch:** Command `0x1C` is dispatched immediately after the 7th chunk. This commits the staged SRAM data to the LED PWM registers in a single atomic cycle and signals frame completion to the MCU, eliminating typing-induced effect reset glitches.
+- **Software Mode Lock & Streaming Activation:** `[0x04, 0x8C, 0x00, 0x0B, 0x30, 0x50, 0x01]` (`Cmd 0x0B`) and Command `0x1C` switch the SinoWealth MCU into Direct SRAM Streaming mode upon initialization, routing the LED PWM engine directly to USB SRAM.
+- **Hardware Mode Neutralization:** On startup, the onboard hardware profile is set to Mode 6 (Static / Normal in vendor `default_light.json`) with RGB `[0, 0, 0]`. This completely disables onboard reactive keystroke animations (such as Traverse and Ripples) from firing into LED registers during typing.
+- **Dirty-Chunk Buffer Diffing:** Maintains internal shadow RAM tracking and transmits only chunks that have changed, with a periodic 1-second watchdog sync. This slashes USB bandwidth usage by 60–90% and gives the MCU ample idle time to handle matrix scanning and USB scancodes without packet drops.
 - **Hardware Matrix:**
   - Function row: Esc (`0`), F1–F12 (`1..12`), Print Screen (`13`), Scroll Lock (`14`), Pause Break (`15`)
   - Enter: Matrix slot `75` (mirrored to `76`)
@@ -107,7 +108,7 @@ All control packets sent to endpoint `0xFF1C:0x0092` are 64-byte HID Output Repo
 
 - **Pause Break, Enter, or Arrow keys not lit:** Earlier versions used placeholder matrix IDs (`16` instead of `15` for Pause; `99, 119, 120, 121` for Arrows). The latest version uses the exact SinoWealth hardware matrix (`13, 14, 15` and `96, 113, 114, 115`).
 - **Esc, F1–F4 blinking or flashing:** Caused by MCU SRAM buffer overruns (sending 392 bytes instead of the exact 378 bytes). Ensure you are running the latest version from this repo.
-- **Lighting flashes / resets when typing:** The plugin now uses `Cmd 0x1C` frame latching and 3-attempt retry guards. If you are on an overloaded USB hub, increase **Packet Spacing Delay** to `3 ms` in device settings.
+- **Keys flashing wrong color / pink row when rapid typing:** Caused by hardware reactive effects or USB packet collisions on the MCU. Fixed in the latest release via dirty-chunk buffer diffing, hardware profile neutralization (Mode 6 Static Black), and moving `Cmd 0x1C` to initialization.
 - **Device not showing up in SignalRGB:** Verify that `SPC_Gear_GK630K.js` is placed in `Documents\WhirlwindFX\Plugins\` and restart SignalRGB. Check `%LOCALAPPDATA%\WhirlwindFX\SignalRgb\logs` for `Custom Plugin File Loaded`.
 
 ---
