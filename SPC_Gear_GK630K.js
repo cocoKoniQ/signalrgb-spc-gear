@@ -233,7 +233,7 @@ export function Initialize() {
 		device.setFrameRateTarget(fps);
 	}
 
-	// Handshake & Switch keyboard firmware to Static / Normal Mode (0x01)
+	// Handshake & Switch keyboard firmware to Profile 0 (0x01)
 	// Mode 0x01 enables all keys across the matrix and eliminates profile indicator blinking on Esc, F1-F4
 	sendPacket(0xAA, [], 0, 0);
 	device.pause(5);
@@ -249,23 +249,39 @@ export function Initialize() {
 		// Ignore
 	}
 
+	// Configure Hardware Profile to Mode 6 (Static / Normal Lighting) with Black [0, 0, 0]
+	// Setting Mode 6 (Static) disables reactive typing triggers (Traverse / Ripples) in MCU hardware!
+	// Default color [0, 0, 0] ensures that even if MCU briefly evaluates hardware mode, NO pink/colored keys appear.
 	sendPacket(0xAA, [], 0, 0);
 	device.pause(5);
 	const cfg = new Array(26).fill(0);
 	cfg[0] = 0;    // Profile 0
-	cfg[1] = 0x01; // Mode 1 (Normal / Static Lighting)
+	cfg[1] = 0x06; // Mode 6 (Normal / Static Lighting in default_light.json)
 	cfg[2] = 2;    // Speed = 2
 	cfg[3] = 0;    // Brightness = 0 (max brightness in firmware)
-	cfg[6] = 255;  // Default R
-	cfg[7] = 255;  // Default G
-	cfg[8] = 255;  // Default B
+	cfg[6] = 0;    // Default R = 0 (Black)
+	cfg[7] = 0;    // Default G = 0 (Black)
+	cfg[8] = 0;    // Default B = 0 (Black)
 	sendPacket(0x06, cfg, 0, 26);
 	device.pause(5);
 
+	// Commit & apply static dark profile to EEPROM
 	sendPacket(0xAA, [], 0, 0);
 	device.pause(5);
 	sendPacket(0x02, [], 0, 0);
 	device.pause(10);
+
+	// Switch MCU to Real-Time SRAM Streaming Mode (Cmd 0x1C)
+	// In the official driver, Cmd 0x1C is sent ONCE when streaming begins to route LED driver to USB SRAM!
+	sendPacket(0xAA, [], 0, 0);
+	device.pause(5);
+	sendPacket(0x1C, [], 0, 0);
+	device.pause(10);
+
+	// Reset dirty buffer tracking so first frame sends all chunks
+	lastSentBuffer = null;
+	frameCount = 0;
+
 	try {
 		device.clearReadBuffer();
 	} catch (e) {
@@ -311,6 +327,13 @@ export function onLightingModeChanged() {
 		} catch (e) {
 			// Ignore
 		}
+		// Re-enter Streaming Mode via Cmd 0x1C
+		sendPacket(0xAA, [], 0, 0);
+		device.pause(5);
+		sendPacket(0x1C, [], 0, 0);
+		device.pause(5);
+		lastSentBuffer = null;
+		frameCount = 0;
 		sendColors();
 	}
 }
@@ -333,6 +356,9 @@ export function Shutdown(SystemSuspending) {
 }
 
 let isSending = false;
+let lastSentBuffer = null;
+let frameCount = 0;
+
 function sendColors(overrideColor) {
 	if (isSending) {
 		return;
@@ -432,14 +458,37 @@ function _doSendColors(overrideColor) {
 		[336, 42]
 	];
 	const delay = (typeof packetDelay !== "undefined") ? Math.max(1, Math.min(5, Number(packetDelay))) : 2;
-	for (let i = 0; i < chunks.length; i++) {
-		const [offset, len] = chunks[i];
-		const chunk = buffer.slice(offset, offset + len);
-		sendPacket(0x12, chunk, offset, len);
-		device.pause(delay);
+
+	frameCount++;
+	// Force full sync periodically (~1 second at 30 FPS) or on initial frame to keep MCU watchdog alive
+	const forceFullSync = !lastSentBuffer || (frameCount >= 30);
+	if (forceFullSync) {
+		frameCount = 0;
+		if (!lastSentBuffer) {
+			lastSentBuffer = new Array(TOTAL_BYTES).fill(-1);
+		}
 	}
 
-	// Commit / Latch frame to LED registers via Cmd 0x1C (prevents timeout fallback during typing)
-	sendPacket(0x1C, [], 0, 0);
-	device.pause(delay);
+	for (let i = 0; i < chunks.length; i++) {
+		const [offset, len] = chunks[i];
+
+		let chunkChanged = forceFullSync;
+		if (!chunkChanged) {
+			for (let b = 0; b < len; b++) {
+				if (buffer[offset + b] !== lastSentBuffer[offset + b]) {
+					chunkChanged = true;
+					break;
+				}
+			}
+		}
+
+		if (chunkChanged) {
+			const chunk = buffer.slice(offset, offset + len);
+			sendPacket(0x12, chunk, offset, len);
+			for (let b = 0; b < len; b++) {
+				lastSentBuffer[offset + b] = buffer[offset + b];
+			}
+			device.pause(delay);
+		}
+	}
 }
