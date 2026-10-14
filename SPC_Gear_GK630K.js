@@ -249,21 +249,23 @@ export function Initialize() {
 		// Ignore
 	}
 
-	// Configure Hardware Profile to Mode 6 (Static / Normal Lighting) with Black [0, 0, 0]
-	// Setting Mode 6 (Static) disables reactive typing triggers (Traverse / Ripples) in MCU hardware!
-	// Default color [0, 0, 0] ensures that even if MCU briefly evaluates hardware mode, NO pink/colored keys appear.
-	sendPacket(0xAA, [], 0, 0);
-	device.pause(5);
-	const cfg = new Array(26).fill(0);
-	cfg[0] = 0;    // Profile 0
-	cfg[1] = 0x06; // Mode 6 (Normal / Static Lighting in default_light.json)
-	cfg[2] = 2;    // Speed = 2
-	cfg[3] = 0;    // Brightness = 0 (max brightness in firmware)
-	cfg[6] = 0;    // Default R = 0 (Black)
-	cfg[7] = 0;    // Default G = 0 (Black)
-	cfg[8] = 0;    // Default B = 0 (Black)
-	sendPacket(0x06, cfg, 0, 26);
-	device.pause(5);
+	// Neutralize all 3 onboard hardware profiles (0, 1, 2) to Mode 6 (Static / Normal Lighting) with Black [0, 0, 0]
+	// This completely eradicates any onboard reactive typing triggers (Traverse, Reaction, Ripples)
+	// and ensures that even if the MCU evaluates hardware mode, NO pink/colored keys can ever appear.
+	for (let prof = 0; prof < 3; prof++) {
+		sendPacket(0xAA, [], 0, 0);
+		device.pause(5);
+		const cfg = new Array(26).fill(0);
+		cfg[0] = prof; // Profile index
+		cfg[1] = 0x06; // Mode 6 (Normal / Static Lighting in default_light.json)
+		cfg[2] = 2;    // Speed = 2
+		cfg[3] = 0;    // Brightness = 0 (max brightness in firmware)
+		cfg[6] = 0;    // Default R = 0 (Black)
+		cfg[7] = 0;    // Default G = 0 (Black)
+		cfg[8] = 0;    // Default B = 0 (Black)
+		sendPacket(0x06, cfg, prof * 25, 26);
+		device.pause(5);
+	}
 
 	// Commit & apply static dark profile to EEPROM
 	sendPacket(0xAA, [], 0, 0);
@@ -281,6 +283,7 @@ export function Initialize() {
 	// Reset dirty buffer tracking so first frame sends all chunks
 	lastSentBuffer = null;
 	frameCount = 0;
+	isInitialized = true;
 
 	try {
 		device.clearReadBuffer();
@@ -317,28 +320,16 @@ export function onLightingModeChanged() {
 		sendPacket(0x02, [], 0, 0);
 	} else {
 		// Resuming software streaming
-		sendPacket(0xAA, [], 0, 0);
-		device.pause(5);
-		sendPacket(0x01, [], 0, 0);
-		device.pause(5);
-		try {
-			device.write([0x04, 0x8C, 0x00, 0x0B, 0x30, 0x50, 0x01], 64);
-			device.pause(5);
-		} catch (e) {
-			// Ignore
-		}
-		// Re-enter Streaming Mode via Cmd 0x1C
-		sendPacket(0xAA, [], 0, 0);
-		device.pause(5);
-		sendPacket(0x1C, [], 0, 0);
-		device.pause(5);
-		lastSentBuffer = null;
-		frameCount = 0;
+		isInitialized = false;
+		Initialize();
 		sendColors();
 	}
 }
 
 export function Render() {
+	if (!isInitialized) {
+		Initialize();
+	}
 	if (typeof LightingMode !== "undefined" && LightingMode === "Hardware (Onboard)") {
 		return;
 	}
@@ -355,6 +346,7 @@ export function Shutdown(SystemSuspending) {
 	}
 }
 
+let isInitialized = false;
 let isSending = false;
 let lastSentBuffer = null;
 let frameCount = 0;
