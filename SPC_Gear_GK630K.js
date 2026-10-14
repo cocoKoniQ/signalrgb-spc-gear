@@ -90,9 +90,9 @@ const vKeys = [
 	{ name: "F10", id: 10, pos: [11, 0] },
 	{ name: "F11", id: 11, pos: [12, 0] },
 	{ name: "F12", id: 12, pos: [13, 0] },
-	{ name: "Print Screen", id: 14, pos: [15, 0] },
-	{ name: "Scroll Lock", id: 15, pos: [16, 0] },
-	{ name: "Pause Break", id: 16, pos: [17, 0] },
+	{ name: "Print Screen", id: 13, pos: [15, 0] },
+	{ name: "Scroll Lock", id: 14, pos: [16, 0] },
+	{ name: "Pause Break", id: 15, pos: [17, 0] },
 	{ name: "`", id: 21, pos: [0, 1] },
 	{ name: "1", id: 22, pos: [1, 1] },
 	{ name: "2", id: 23, pos: [2, 1] },
@@ -139,7 +139,7 @@ const vKeys = [
 	{ name: "L", id: 72, pos: [9, 3] },
 	{ name: ";", id: 73, pos: [10, 3] },
 	{ name: "'", id: 74, pos: [11, 3] },
-	{ name: "Enter", id: 76, pos: [13, 3] },
+	{ name: "Enter", id: 75, pos: [13, 3] },
 	{ name: "Left Shift", id: 84, pos: [0, 4] },
 	{ name: "Z", id: 85, pos: [1, 4] },
 	{ name: "X", id: 86, pos: [2, 4] },
@@ -152,7 +152,7 @@ const vKeys = [
 	{ name: ".", id: 93, pos: [9, 4] },
 	{ name: "/", id: 94, pos: [10, 4] },
 	{ name: "Right Shift", id: 95, pos: [13, 4] },
-	{ name: "Up Arrow", id: 99, pos: [16, 4] },
+	{ name: "Up Arrow", id: 96, pos: [16, 4] },
 	{ name: "Left Ctrl", id: 105, pos: [0, 5] },
 	{ name: "Left Win", id: 106, pos: [1, 5] },
 	{ name: "Left Alt", id: 107, pos: [2, 5] },
@@ -161,9 +161,9 @@ const vKeys = [
 	{ name: "Fn", id: 110, pos: [11, 5] },
 	{ name: "Menu", id: 111, pos: [12, 5] },
 	{ name: "Right Ctrl", id: 112, pos: [13, 5] },
-	{ name: "Left Arrow", id: 119, pos: [15, 5] },
-	{ name: "Down Arrow", id: 120, pos: [16, 5] },
-	{ name: "Right Arrow", id: 121, pos: [17, 5] }
+	{ name: "Left Arrow", id: 113, pos: [15, 5] },
+	{ name: "Down Arrow", id: 114, pos: [16, 5] },
+	{ name: "Right Arrow", id: 115, pos: [17, 5] }
 ];
 
 export function LedNames() {
@@ -203,10 +203,16 @@ function sendPacket(cmd, payload = [], offset = 0, explicitLen = 56) {
 	packet[1] = sum & 0xFF;
 	packet[2] = (sum >> 8) & 0xFF;
 
-	try {
-		device.write(packet, 64);
-	} catch (e) {
-		// Transient USB busy / collision recovery
+	let written = false;
+	for (let attempt = 0; attempt < 3 && !written; attempt++) {
+		try {
+			device.write(packet, 64);
+			written = true;
+		} catch (e) {
+			if (attempt < 2) {
+				device.pause(1);
+			}
+		}
 	}
 }
 
@@ -268,6 +274,44 @@ export function onBrightnessChanged() {
 	}
 }
 
+export function onkeyboardBrightnessChanged() {
+	if (typeof LightingMode === "undefined" || LightingMode !== "Hardware (Onboard)") {
+		sendColors();
+	}
+}
+
+export function onforcedColorChanged() {
+	if (typeof LightingMode !== "undefined" && LightingMode === "Forced") {
+		sendColors();
+	}
+}
+
+export function onpacketDelayChanged() {
+	// Handled dynamically on next render frame
+}
+
+export function onLightingModeChanged() {
+	if (LightingMode === "Hardware (Onboard)") {
+		// Signal MCU to reload active hardware profile from EEPROM
+		sendPacket(0xAA, [], 0, 0);
+		device.pause(5);
+		sendPacket(0x02, [], 0, 0);
+	} else {
+		// Resuming software streaming
+		sendPacket(0xAA, [], 0, 0);
+		device.pause(5);
+		sendPacket(0x01, [], 0, 0);
+		device.pause(5);
+		try {
+			device.write([0x04, 0x8C, 0x00, 0x0B, 0x30, 0x50, 0x01], 64);
+			device.pause(5);
+		} catch (e) {
+			// Ignore
+		}
+		sendColors();
+	}
+}
+
 export function Render() {
 	if (typeof LightingMode !== "undefined" && LightingMode === "Hardware (Onboard)") {
 		return;
@@ -325,38 +369,44 @@ function sendColors(overrideColor) {
 
 		// Mirror to alternate matrix slots for keys with revision/layout variance (ANSI & ISO)
 		if (key.name === "Enter") {
-			buffer[75 * 3]     = r;
-			buffer[75 * 3 + 1] = g;
-			buffer[75 * 3 + 2] = b;
+			buffer[76 * 3]     = r;
+			buffer[76 * 3 + 1] = g;
+			buffer[76 * 3 + 2] = b;
 		} else if (key.name === "Backslash") {
-			buffer[55 * 3]     = r;
-			buffer[55 * 3 + 1] = g;
-			buffer[55 * 3 + 2] = b;
-			buffer[85 * 3]     = r;
-			buffer[85 * 3 + 1] = g;
-			buffer[85 * 3 + 2] = b;
+			// ISO # ~ key adjacent to Enter
+			buffer[62 * 3]     = r;
+			buffer[62 * 3 + 1] = g;
+			buffer[62 * 3 + 2] = b;
+			// ISO < > / \ | key adjacent to Left Shift
+			buffer[102 * 3]     = r;
+			buffer[102 * 3 + 1] = g;
+			buffer[102 * 3 + 2] = b;
+		} else if (key.name === "Print Screen") {
+			buffer[16 * 3]     = r;
+			buffer[16 * 3 + 1] = g;
+			buffer[16 * 3 + 2] = b;
 		} else if (key.name === "Up Arrow") {
-			buffer[96 * 3]     = r;
-			buffer[96 * 3 + 1] = g;
-			buffer[96 * 3 + 2] = b;
+			buffer[99 * 3]     = r;
+			buffer[99 * 3 + 1] = g;
+			buffer[99 * 3 + 2] = b;
 		} else if (key.name === "Left Arrow") {
-			buffer[113 * 3]     = r;
-			buffer[113 * 3 + 1] = g;
-			buffer[113 * 3 + 2] = b;
 			buffer[117 * 3]     = r;
 			buffer[117 * 3 + 1] = g;
 			buffer[117 * 3 + 2] = b;
+			buffer[119 * 3]     = r;
+			buffer[119 * 3 + 1] = g;
+			buffer[119 * 3 + 2] = b;
 		} else if (key.name === "Down Arrow") {
-			buffer[114 * 3]     = r;
-			buffer[114 * 3 + 1] = g;
-			buffer[114 * 3 + 2] = b;
 			buffer[118 * 3]     = r;
 			buffer[118 * 3 + 1] = g;
 			buffer[118 * 3 + 2] = b;
+			buffer[120 * 3]     = r;
+			buffer[120 * 3 + 1] = g;
+			buffer[120 * 3 + 2] = b;
 		} else if (key.name === "Right Arrow") {
-			buffer[115 * 3]     = r;
-			buffer[115 * 3 + 1] = g;
-			buffer[115 * 3 + 2] = b;
+			buffer[121 * 3]     = r;
+			buffer[121 * 3 + 1] = g;
+			buffer[121 * 3 + 2] = b;
 		}
 	}
 
@@ -379,4 +429,7 @@ function sendColors(overrideColor) {
 		sendPacket(0x12, chunk, offset, len);
 		device.pause(delay);
 	}
+
+	// Commit / Latch frame to LED registers via Cmd 0x1C (prevents timeout fallback during typing)
+	sendPacket(0x1C, [], 0, 0);
 }
