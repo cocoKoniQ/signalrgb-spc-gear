@@ -20,7 +20,7 @@ export function ImageUrl() {
 /* global
 shutdownColor:readonly
 LightingMode:readonly
-keyboardBrightness:readonly
+refreshRate:readonly
 packetDelay:readonly
 forcedColor:readonly
 */
@@ -44,21 +44,19 @@ export function ControllableParameters() {
 			default: "Canvas"
 		},
 		{
-			property: "keyboardBrightness",
+			property: "refreshRate",
 			group: "lighting",
-			label: "Keyboard Brightness",
-			description: "Dedicated keyboard brightness scaling (0-100%)",
-			type: "number",
-			min: "0",
-			max: "100",
-			step: "5",
-			default: "100"
+			label: "Refresh Rate Target",
+			description: "Target refresh rate. 30 FPS ensures rock-solid USB stability and eliminates packet drops during high-speed typing",
+			type: "combobox",
+			values: ["30 FPS (Recommended - Typing Safe)", "40 FPS", "60 FPS (Fast)"],
+			default: "30 FPS (Recommended - Typing Safe)"
 		},
 		{
 			property: "packetDelay",
 			group: "lighting",
 			label: "Packet Spacing Delay",
-			description: "Delay in ms between USB chunk packets (default 2ms). Increase to 3ms if lighting flickers during high-speed typing",
+			description: "Delay in ms between USB chunk packets (default 2ms)",
 			type: "number",
 			min: "1",
 			max: "5",
@@ -228,6 +226,13 @@ export function Initialize() {
 		}
 	}
 
+	// Apply Frame Rate Target (default 30 FPS provides typing stability and USB headroom)
+	if (typeof device.setFrameRateTarget === "function") {
+		const fps = (typeof refreshRate !== "undefined" && refreshRate.includes("60")) ? 60 : 
+		            (typeof refreshRate !== "undefined" && refreshRate.includes("40")) ? 40 : 30;
+		device.setFrameRateTarget(fps);
+	}
+
 	// Handshake & Switch keyboard firmware to Static / Normal Mode (0x01)
 	// Mode 0x01 enables all keys across the matrix and eliminates profile indicator blinking on Esc, F1-F4
 	sendPacket(0xAA, [], 0, 0);
@@ -268,26 +273,24 @@ export function Initialize() {
 	}
 }
 
-export function onBrightnessChanged() {
-	if (typeof LightingMode === "undefined" || LightingMode !== "Hardware (Onboard)") {
-		sendColors();
+export function onrefreshRateChanged() {
+	if (typeof device.setFrameRateTarget === "function") {
+		const fps = (typeof refreshRate !== "undefined" && refreshRate.includes("60")) ? 60 : 
+		            (typeof refreshRate !== "undefined" && refreshRate.includes("40")) ? 40 : 30;
+		device.setFrameRateTarget(fps);
 	}
 }
 
-export function onkeyboardBrightnessChanged() {
-	if (typeof LightingMode === "undefined" || LightingMode !== "Hardware (Onboard)") {
-		sendColors();
-	}
+export function onBrightnessChanged() {
+	// Let continuous Render() pick up the change at 30 FPS without flooding the USB queue
 }
 
 export function onforcedColorChanged() {
-	if (typeof LightingMode !== "undefined" && LightingMode === "Forced") {
-		sendColors();
-	}
+	// Handled on next Render() frame
 }
 
 export function onpacketDelayChanged() {
-	// Handled dynamically on next render frame
+	// Handled on next Render() frame
 }
 
 export function onLightingModeChanged() {
@@ -329,15 +332,24 @@ export function Shutdown(SystemSuspending) {
 	}
 }
 
+let isSending = false;
 function sendColors(overrideColor) {
+	if (isSending) {
+		return;
+	}
+	isSending = true;
+	try {
+		_doSendColors(overrideColor);
+	} finally {
+		isSending = false;
+	}
+}
+
+function _doSendColors(overrideColor) {
 	const TOTAL_BYTES = 378; // 126 keys * 3 bytes (RGB) = 378 bytes
 	const buffer = new Array(TOTAL_BYTES).fill(0);
 
-	// Dedicated keyboard brightness scaling (from plugin parameter)
-	const kbRaw = (typeof keyboardBrightness !== "undefined") ? Number(keyboardBrightness) : 100;
-	const kbScale = Math.max(0, Math.min(100, isNaN(kbRaw) ? 100 : kbRaw)) / 100.0;
-
-	// Built-in device brightness scaling (from SignalRGB device card slider)
+	// Built-in device brightness scaling (from SignalRGB native device card slider)
 	const devRaw = (typeof device.getBrightness === "function") ? Number(device.getBrightness()) : 100;
 	const devScale = Math.max(0, Math.min(100, isNaN(devRaw) ? 100 : devRaw)) / 100.0;
 
@@ -345,22 +357,19 @@ function sendColors(overrideColor) {
 		const key = vKeys[i];
 		let col;
 		if (overrideColor) {
-			col = hexToRgb(overrideColor);
+			const base = hexToRgb(overrideColor);
+			col = [Math.round(base[0] * devScale), Math.round(base[1] * devScale), Math.round(base[2] * devScale)];
 		} else if (typeof LightingMode !== "undefined" && LightingMode === "Forced") {
-			col = hexToRgb(forcedColor);
+			const base = hexToRgb(forcedColor);
+			col = [Math.round(base[0] * devScale), Math.round(base[1] * devScale), Math.round(base[2] * devScale)];
 		} else {
+			// Canvas mode: device.color(x, y) is ALREADY scaled by devScale by SignalRGB
 			col = device.color(key.pos[0], key.pos[1]);
 		}
 
-		// device.color() in Canvas mode is already pre-multiplied by devScale by SignalRGB.
-		// For Forced mode or overrideColor, apply devScale explicitly.
-		// kbScale applies universally across all modes.
-		const isPreScaled = (!overrideColor && (typeof LightingMode === "undefined" || LightingMode === "Canvas"));
-		const effectiveScale = isPreScaled ? kbScale : (kbScale * devScale);
-
-		const r = Math.round(col[0] * effectiveScale);
-		const g = Math.round(col[1] * effectiveScale);
-		const b = Math.round(col[2] * effectiveScale);
+		const r = Math.max(0, Math.min(255, col[0]));
+		const g = Math.max(0, Math.min(255, col[1]));
+		const b = Math.max(0, Math.min(255, col[2]));
 
 		const idx = key.id * 3;
 		buffer[idx]     = r;
@@ -432,4 +441,5 @@ function sendColors(overrideColor) {
 
 	// Commit / Latch frame to LED registers via Cmd 0x1C (prevents timeout fallback during typing)
 	sendPacket(0x1C, [], 0, 0);
+	device.pause(delay);
 }

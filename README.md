@@ -58,10 +58,13 @@ Inside SignalRGB, click on the **SPC Gear GK630K** card to access its settings:
 | Parameter | Type | Default | Description |
 | :--- | :--- | :--- | :--- |
 | **Lighting Mode** | Combobox | `Canvas` | `Canvas` (SignalRGB effects), `Hardware (Onboard)` (restores native MCU effects), or `Forced` (static color). |
-| **Keyboard Brightness** | Slider | `100%` | Adjusts brightness (0–100%) specifically for this keyboard without altering global effect brightness. |
-| **Packet Spacing Delay** | Slider | `2 ms` | Inter-chunk USB delay (1–5ms). Default `2ms` provides optimal typing stability. Increase to `3ms` if connected through a busy hub. |
+| **Refresh Rate Target** | Combobox | `30 FPS (Recommended - Typing Safe)` | Target frame rate (30, 40, or 60 FPS). 30 FPS provides 17ms of quiet USB bus time per frame, completely eliminating dropped packets during typing. |
+| **Packet Spacing Delay** | Slider | `2 ms` | Inter-chunk USB delay (1–5ms). Default `2ms` provides optimal balance. Increase to `3ms` if connected through a busy hub. |
 | **Forced Color** | Color | `#009BDE` | Color used when `Forced` mode is selected. |
 | **Shutdown Color** | Color | `#000000` | Color applied when Windows or SignalRGB shuts down / suspends. |
+
+> [!NOTE]
+> **Keyboard Brightness:** Brightness is controlled directly via SignalRGB's native device brightness slider on the device card. A single unified slider prevents double-dimming and ensures instant, flicker-free adjustments.
 
 ---
 
@@ -70,10 +73,10 @@ Inside SignalRGB, click on the **SPC Gear GK630K** card to access its settings:
 ### Why doesn't physical `SPC + Up / Down Arrow` dim SignalRGB?
 - On the GK630K, the `SPC` key is an internal hardware `Fn` key. The USB HID standard has no scancode for `Fn`.
 - When you press `SPC + Up` or `SPC + Down`, the keyboard's internal microcontroller intercepts the combination **entirely in hardware** and **never sends any signal over USB to Windows**.
-- When SignalRGB is active, it streams raw 24-bit RGB values directly to each key's LED driver 60 times a second. This continuously overwrites the MCU's internal brightness setting.
+- When SignalRGB is active, it streams raw 24-bit RGB values directly to each key's LED driver. This continuously overwrites the MCU's internal brightness setting.
 
-### How to adjust brightness with keys:
-1. **In SignalRGB:** Use the **Keyboard Brightness** slider in device settings.
+### How to adjust brightness:
+1. **In SignalRGB:** Use the native **Brightness** slider on the SPC Gear GK630K device card.
 2. **Onboard Hardware Mode:** Set `Lighting Mode` to `Hardware (Onboard)` in SignalRGB to immediately restore 100% native control to the physical `SPC + Up/Down` keys.
 3. **Optional Hotkey Helper:** We provide an optional standalone Python script in [`scripts/hotkey_brightness.py`](scripts/hotkey_brightness.py) that listens for <kbd>Ctrl</kbd> + <kbd>Up</kbd> / <kbd>Down</kbd> to adjust keyboard brightness on the fly without opening SignalRGB.
 
