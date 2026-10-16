@@ -270,8 +270,6 @@ export function Initialize() {
 	sendPacket(0x1C, [], 0, 0);
 	device.pause(10);
 
-	lastSentBuffer.fill(-1);
-	lastFullRefreshTime = 0;
 	isInitialized = true;
 
 	if (typeof device.log === "function") {
@@ -365,8 +363,6 @@ export function Shutdown(SystemSuspending) {
 
 let isInitialized = false;
 let isSending = false;
-const lastSentBuffer = new Array(378).fill(-1);
-let lastFullRefreshTime = 0;
 
 function sendColors(overrideColor) {
 	if (isSending) {
@@ -456,9 +452,7 @@ function _doSendColors(overrideColor) {
 
 	// Stream 378 bytes in 8 chunks of 48 bytes (7x48 + 1x42 = 378 bytes) via Cmd 0x12 (Real-Time SRAM Streaming)
 	// Exact 48-byte multiples of 3 (16 keys * 3 bytes) ensure every packet starts and ends on exact RGB key boundaries.
-	// No key is ever split across packets, completely eliminating byte alignment shifts (pink/magenta/blue glitches) during typing.
-	// Dirty-chunk diffing slashes USB bandwidth usage by 70-95%, giving the MCU ample idle time to handle matrix scanning.
-	// A 1-second watchdog heartbeat guarantees full matrix synchronization.
+	// Continuous streaming at 30 FPS feeds the SinoWealth MCU watchdog timer, preventing it from reverting to onboard lighting during static or paused effects.
 	const chunks = [
 		[0, 48],
 		[48, 48],
@@ -469,30 +463,12 @@ function _doSendColors(overrideColor) {
 		[288, 48],
 		[336, 42]
 	];
-	const delay = (typeof packetDelay !== "undefined") ? Math.max(2, Math.min(6, Number(packetDelay))) : 3;
-	const forceAll = (Date.now() - lastFullRefreshTime > 1000);
+	const delay = (typeof packetDelay !== "undefined") ? Math.max(1, Math.min(5, Number(packetDelay))) : 2;
 
 	for (let i = 0; i < chunks.length; i++) {
 		const [offset, len] = chunks[i];
-		let isDirty = forceAll;
-		if (!isDirty) {
-			for (let j = 0; j < len; j++) {
-				if (buffer[offset + j] !== lastSentBuffer[offset + j]) {
-					isDirty = true;
-					break;
-				}
-			}
-		}
-		if (isDirty) {
-			const chunk = buffer.slice(offset, offset + len);
-			sendPacket(0x12, chunk, offset, len);
-			for (let j = 0; j < len; j++) {
-				lastSentBuffer[offset + j] = buffer[offset + j];
-			}
-			device.pause(delay);
-		}
-	}
-	if (forceAll) {
-		lastFullRefreshTime = Date.now();
+		const chunk = buffer.slice(offset, offset + len);
+		sendPacket(0x12, chunk, offset, len);
+		device.pause(delay);
 	}
 }
