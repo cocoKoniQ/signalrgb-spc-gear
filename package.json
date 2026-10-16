@@ -1,0 +1,23 @@
+{
+  "name": "signalrgb-spc-gear",
+  "version": "1.0.0",
+  "description": "SignalRGB plugin for SPC Gear and Endorfy mechanical keyboards, featuring true per-key RGB canvas sync, 48-byte stable USB streaming, and full ANSI/ISO support.",
+  "main": "SPC_Gear_GK630K.js",
+  "scripts": {
+    "test": "node tests/test_plugin.js",
+    "install-plugin": "powershell -ExecutionPolicy Bypass -File ./install.ps1"
+  },
+  "keywords": [
+    "signalrgb",
+    "signalrgb-plugin",
+    "spc-gear",
+    "endorfy",
+    "gk630k",
+    "sinowealth",
+    "evision",
+    "rgb-lighting",
+    "mechanical-keyboard"
+  ],
+  "author": "miodu",
+  "license": "MIT"
+}
