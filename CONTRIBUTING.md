@@ -19,7 +19,7 @@ If you own an SPC Gear or Endorfy peripheral that is not yet supported, you can 
 ## ⌨️ Requesting Support for Your Device
 
 If you have an unsupported device:
-1. Open a **[Device Compatibility Request](https://github.com/miodu/signalrgb-spc-gear/issues/new?template=device_request.md)**.
+1. Open a **[Device Compatibility Request](https://github.com/cocoKoniQ/signalrgb-spc-gear/issues/new?template=device_request.md)**.
 2. Provide your device's exact USB Hardware IDs (VID & PID) from Windows Device Manager:
    - Press <kbd>Win</kbd> + <kbd>X</kbd> → **Device Manager**.
    - Expand **Keyboards** or **Human Interface Devices**.

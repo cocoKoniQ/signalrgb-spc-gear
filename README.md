@@ -76,7 +76,7 @@ We are actively developing a **Universal SPC Gear / Endorfy Plugin** to support 
 
 If you own an SPC Gear or Endorfy keyboard, mouse, or pad that isn't working with SignalRGB yet, **we want to add it!**
 
-1. Go to **[Issues → Device Compatibility Request](https://github.com/miodu/signalrgb-spc-gear/issues/new?template=device_request.md)**.
+1. Go to **[Issues → Device Compatibility Request](https://github.com/cocoKoniQ/signalrgb-spc-gear/issues/new?template=device_request.md)**.
 2. Fill out the quick template with your model name and USB Hardware IDs:
    - Press <kbd>Win</kbd> + <kbd>X</kbd> → select **Device Manager**.
    - Expand **Keyboards** or **Human Interface Devices**.
