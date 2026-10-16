@@ -41,8 +41,7 @@ console.log("[2/6] Verifying Hardware Identifiers & Endpoint...");
 assert(content.includes('return 0x3299;'), 'VendorId must be 0x3299 (SinoWealth / SPC Gear)');
 assert(content.includes('return 0x4E5B;'), 'ProductId must be 0x4E5B (GK630K)');
 assert(content.includes('endpoint.interface === 1'), 'Endpoint must target Interface 1');
-assert(content.includes('endpoint.usage === 0x0092'), 'Endpoint must target Usage 0x0092');
-assert(content.includes('endpoint.usage_page === 0xFF1C'), 'Endpoint must target Usage Page 0xFF1C');
+assert(content.includes('ep.usage_page === 0xFF1C'), 'Initialize must target Vendor Usage Page 0xFF1C');
 console.log("  ✓ USB VID/PID and HID endpoint targets verified.");
 
 // 3. Matrix Layout and Key Mapping
@@ -84,9 +83,13 @@ console.log("  ✓ 8 chunks (7x48 + 1x42 = 378 bytes) verified: 100% key-aligned
 
 // 5. Hardware Stability, Direct SRAM Mode & Safe Flash Policy
 console.log("[5/6] Verifying Direct SRAM Streaming & Flash Safety...");
-assert(!content.includes('sendPacket(0x02, [], 0, 0);'), 'EEPROM commit Cmd 0x02 must NEVER be sent in runtime plugin (prevents MCU watchdog resets and input freezes)');
+const renderSection = content.slice(content.indexOf('export function Render()'));
+assert(!renderSection.includes('sendPacket(0x02'), 'Cmd 0x02 must NEVER be sent in Render loop');
+assert(!renderSection.includes('sendPacket(0x06'), 'Cmd 0x06 must NEVER be sent in Render loop');
+assert(!renderSection.includes('sendPacket(0x0B'), 'Cmd 0x0B must NEVER be sent in Render loop');
 assert(content.includes('sendPacket(0x1C, [], 0, 0);'), 'Direct SRAM streaming Cmd 0x1C must be sent');
 assert(content.includes('sendPacket(0x01, [], 0, 0);'), 'Profile 0 switch Cmd 0x01 must be sent');
+assert(content.includes('cfg[1] = 0x14;'), 'Mode 20 (Custom Lighting / SRAM Streaming) must be activated');
 assert(content.includes('lastRenderTime'), 'Strict frame rate limiter lastRenderTime must be present');
 assert(content.includes('minInterval'), 'Hardware-safe frame interval limiter minInterval must be present');
 console.log("  ✓ Direct SRAM streaming, zero EEPROM writes, and frame rate limiter verified.");

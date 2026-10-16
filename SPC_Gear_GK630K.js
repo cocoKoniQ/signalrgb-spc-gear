@@ -11,7 +11,7 @@ export function DefaultPosition() { return [10, 100]; }
 export function DefaultScale() { return 8.0; }
 export function DeviceType() { return "keyboard"; }
 export function Validate(endpoint) {
-	return endpoint.interface === 1 && endpoint.usage === 0x0092 && endpoint.usage_page === 0xFF1C;
+	return endpoint.interface === 1;
 }
 export function ImageUrl() {
 	return "https://assets.signalrgb.com/devices/brands/logitech/keyboards/pro-tkl.png";
@@ -216,12 +216,18 @@ function sendPacket(cmd, payload = [], offset = 0, explicitLen = 56) {
 
 export function Initialize() {
 	if (typeof device.getHidEndpoints === "function") {
-		const endpoints = device.getHidEndpoints();
-		for (let i = 0; i < endpoints.length; i++) {
-			const ep = endpoints[i];
-			if (ep.interface === 1 && ep.usage_page === 0xFF1C && ep.usage === 0x0092) {
-				device.set_endpoint(ep.interface, ep.usage, ep.usage_page, ep.collection);
-				break;
+		try {
+			const endpoints = device.getHidEndpoints();
+			for (let i = 0; i < endpoints.length; i++) {
+				const ep = endpoints[i];
+				if (ep.interface === 1 && ep.usage_page === 0xFF1C && (ep.usage === 0x0092 || !ep.usage)) {
+					device.set_endpoint(ep.interface, ep.usage, ep.usage_page, ep.collection);
+					break;
+				}
+			}
+		} catch (e) {
+			if (typeof device.log === "function") {
+				device.log("SPC Gear GK630K: Endpoint selection notice: " + e, { toFile: true });
 			}
 		}
 	}
@@ -234,24 +240,43 @@ export function Initialize() {
 	}
 
 	// Settling delay: allow the SinoWealth 8051 MCU to settle and finish its power-on boot routine
-	device.pause(100);
+	device.pause(50);
 
-	// Handshake & Switch keyboard firmware to Profile 0 (0x01)
-	// Mode 0x01 enables all keys across the matrix and eliminates profile indicator blinking on Esc, F1-F4
+	// Handshake & Switch keyboard firmware to Custom / Per-Key Lighting Mode (Mode 20 = 0x14)
+	// This halts the MCU's internal rainbow wave animation loop so that real-time SRAM writes do not collide
 	sendPacket(0xAA, [], 0, 0);
-	device.pause(15);
+	device.pause(10);
 	sendPacket(0x01, [], 0, 0);
-	device.pause(15);
+	device.pause(10);
+
+	sendPacket(0xAA, [], 0, 0);
+	device.pause(10);
+	const cfg = new Array(26).fill(0);
+	cfg[0] = 0;    // Profile 0
+	cfg[1] = 0x14; // Mode 20 (Custom Lighting / Real-Time Streaming)
+	cfg[2] = 2;    // Speed
+	cfg[3] = 0;    // Max Brightness
+	sendPacket(0x06, cfg, 0, 26);
+	device.pause(10);
+
+	sendPacket(0xAA, [], 0, 0);
+	device.pause(10);
+	sendPacket(0x02, [], 0, 0);
+	device.pause(20);
 
 	// Switch MCU to Real-Time SRAM Streaming Mode (Cmd 0x1C)
 	sendPacket(0xAA, [], 0, 0);
-	device.pause(15);
+	device.pause(10);
 	sendPacket(0x1C, [], 0, 0);
-	device.pause(15);
+	device.pause(10);
 
 	lastSentBuffer.fill(-1);
 	lastFullRefreshTime = 0;
 	isInitialized = true;
+
+	if (typeof device.log === "function") {
+		device.log("SPC Gear GK630K: Initialized successfully in Mode 20 (SRAM Streaming)", { toFile: true });
+	}
 
 	try {
 		device.clearReadBuffer();
@@ -282,10 +307,21 @@ export function onpacketDelayChanged() {
 
 export function onLightingModeChanged() {
 	if (LightingMode === "Hardware (Onboard)") {
-		// Switch keyboard to hardware onboard profile without burning EEPROM flash
+		// Switch keyboard to hardware onboard spectrum wave (Mode 1)
 		sendPacket(0xAA, [], 0, 0);
-		device.pause(5);
+		device.pause(10);
 		sendPacket(0x01, [], 0, 0);
+		device.pause(10);
+		const cfg = new Array(26).fill(0);
+		cfg[0] = 0;    // Profile 0
+		cfg[1] = 0x01; // Mode 1 = Hardware Wave
+		cfg[2] = 2;
+		cfg[3] = 0;
+		sendPacket(0x06, cfg, 0, 26);
+		device.pause(10);
+		sendPacket(0xAA, [], 0, 0);
+		device.pause(10);
+		sendPacket(0x02, [], 0, 0);
 	} else {
 		// Resuming software streaming
 		isInitialized = false;
