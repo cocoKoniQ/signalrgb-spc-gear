@@ -233,18 +233,21 @@ export function Initialize() {
 		device.setFrameRateTarget(fps);
 	}
 
+	// Settling delay: allow the SinoWealth 8051 MCU to settle and finish its power-on boot routine
+	device.pause(100);
+
 	// Handshake & Switch keyboard firmware to Profile 0 (0x01)
 	// Mode 0x01 enables all keys across the matrix and eliminates profile indicator blinking on Esc, F1-F4
 	sendPacket(0xAA, [], 0, 0);
-	device.pause(5);
+	device.pause(15);
 	sendPacket(0x01, [], 0, 0);
-	device.pause(5);
+	device.pause(15);
 
 	// Switch MCU to Real-Time SRAM Streaming Mode (Cmd 0x1C)
 	sendPacket(0xAA, [], 0, 0);
-	device.pause(5);
+	device.pause(15);
 	sendPacket(0x1C, [], 0, 0);
-	device.pause(5);
+	device.pause(15);
 
 	lastSentBuffer.fill(-1);
 	lastFullRefreshTime = 0;
@@ -315,9 +318,9 @@ export function Render() {
 }
 
 export function Shutdown(SystemSuspending) {
-	const color = SystemSuspending ? "#000000" : (typeof shutdownColor !== "undefined" ? shutdownColor : "#000000");
-	sendColors(color);
 	try {
+		const color = SystemSuspending ? "#000000" : (typeof shutdownColor !== "undefined" ? shutdownColor : "#000000");
+		sendColors(color);
 		device.clearReadBuffer();
 	} catch (e) {
 		// Ignore
@@ -430,7 +433,7 @@ function _doSendColors(overrideColor) {
 		[288, 48],
 		[336, 42]
 	];
-	const delay = (typeof packetDelay !== "undefined") ? Math.max(1, Math.min(5, Number(packetDelay))) : 2;
+	const delay = (typeof packetDelay !== "undefined") ? Math.max(2, Math.min(6, Number(packetDelay))) : 3;
 	const forceAll = (Date.now() - lastFullRefreshTime > 1000);
 
 	for (let i = 0; i < chunks.length; i++) {
