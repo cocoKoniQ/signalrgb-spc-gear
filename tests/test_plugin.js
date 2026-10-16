@@ -82,15 +82,14 @@ for (let i = 0; i < chunkPairs.length; i++) {
 assert.strictEqual(runningOffset, 378, 'Total stream bytes must equal 378 (126 keys * 3)');
 console.log("  ✓ 8 chunks (7x48 + 1x42 = 378 bytes) verified: 100% key-aligned, no byte shifts.");
 
-// 5. Hardware EEPROM Profile Neutralization & Streaming Mode
-console.log("[5/6] Verifying Hardware EEPROM Neutralization...");
-assert(content.includes('new Array(66).fill(0)'), 'EEPROM configuration must be 66 bytes (0x42)');
-assert(content.includes('const baseOff = prof * 128;'), 'EEPROM profile offset must be prof * 128 (0x80)');
-assert(content.includes('cfg[1] = 0x06;'), 'EEPROM mode must be Mode 6 (Static / Normal Lighting)');
-assert(content.includes('cfg[3] = 4;'), 'EEPROM brightness must be 4 (dark / 0 brightness)');
-assert(content.includes('sendPacket(0x02, [], 0, 0);'), 'EEPROM commit Cmd 0x02 must be sent');
+// 5. Hardware Stability, Direct SRAM Mode & Safe Flash Policy
+console.log("[5/6] Verifying Direct SRAM Streaming & Flash Safety...");
+assert(!content.includes('sendPacket(0x02, [], 0, 0);'), 'EEPROM commit Cmd 0x02 must NEVER be sent in runtime plugin (prevents MCU watchdog resets and input freezes)');
 assert(content.includes('sendPacket(0x1C, [], 0, 0);'), 'Direct SRAM streaming Cmd 0x1C must be sent');
-console.log("  ✓ Hardware EEPROM neutralization & Cmd 0x1C streaming latch verified.");
+assert(content.includes('sendPacket(0x01, [], 0, 0);'), 'Profile 0 switch Cmd 0x01 must be sent');
+assert(content.includes('lastRenderTime'), 'Strict frame rate limiter lastRenderTime must be present');
+assert(content.includes('minInterval'), 'Hardware-safe frame interval limiter minInterval must be present');
+console.log("  ✓ Direct SRAM streaming, zero EEPROM writes, and frame rate limiter verified.");
 
 // 6. Native Brightness & Stability Safety
 console.log("[6/6] Verifying Brightness Calculation & Re-Entrancy Guard...");

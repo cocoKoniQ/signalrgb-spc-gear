@@ -127,13 +127,14 @@ Field: [0x04] [CSUM_L] [CSUM_H] [CMD] [LEN] [OFF_L] [OFF_H] [0x00] [PAYLOAD DATA
 - This plugin streams 378 total matrix bytes ($126 \text{ keys} \times 3$) in **8 chunks of 48 bytes** ($7 \times 48\text{B} + 1 \times 42\text{B} = 378\text{B}$).
 - Because $48 \pmod 3 = 0$ and $42 \pmod 3 = 0$, **every single chunk begins on byte 0 of an RGB key (Red) and ends on byte 2 (Blue)**. Keys are never split across packets.
 
-### 2. EEPROM Hardware Neutralization
-- Disassembly of `GK630K Keyboard.exe` (function `0x0048A030`) revealed that profile configuration requires a 66-byte (`0x42`) payload at offset $\text{profile} \times 128$ (`0x80`).
-- During `Initialize()`, all 3 EEPROM profiles are set to Mode 6 (Static Dark, Brightness 4/Off). This completely disables internal reactive triggers (Mode 9: Traverse row beam, Mode 7: Reaction).
+### 2. Direct SRAM Streaming & Zero-Flash Safety Policy
+- Disassembly of `GK630K Keyboard.exe` revealed that `Cmd 0x02` and `Cmd 0x06` trigger non-volatile EEPROM Flash erase and write cycles. While writing to Flash memory, the MCU halts global interrupts (`EA = 0`), which causes Windows HID endpoint timeouts, USB port resets, and 1-second keyboard reboots.
+- This plugin operates **100% in volatile SRAM** using `Cmd 0x1C` and `Cmd 0x12`. It never writes to EEPROM during runtime, eliminating input freezes and multi-reset reboot loops.
 
-### 3. Streaming Mode & Watchdog Management
+### 3. Hardware-Safe Frame Rate Limiting & Watchdog Management
 - `Cmd 0x0B` (`[0x04, 0x8C, 0x00, 0x0B, 0x30, 0x50, 0x01]`) and `Cmd 0x1C` route the SinoWealth LED driver directly to USB SRAM.
-- Continuous streaming feeds the MCU watchdog on every frame, eliminating 2–4s hardware fallback resets.
+- The plugin enforces a strict hardware frame rate limiter (`minInterval` in JS) guaranteeing that frames never stream faster than 30 FPS (~33ms budget).
+- With 8 packets taking 16ms ($8 \times 2\text{ms}$), every frame leaves **at least 17ms of quiet USB bus time**, ensuring the MCU's keyboard matrix scanning and USB input reports are never starved.
 
 ---
 

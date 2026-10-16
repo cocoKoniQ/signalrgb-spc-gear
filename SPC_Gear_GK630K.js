@@ -249,37 +249,12 @@ export function Initialize() {
 		// Ignore
 	}
 
-	// Neutralize all 3 onboard hardware profiles (0, 1, 2) in EEPROM to Mode 6 (Static Dark)
-	// Offset = prof * 128 (0x80), Length = 66 bytes (0x42) as reverse-engineered from GK630K binary (func 0x0048A030)
-	// This completely eradicates any onboard reactive typing triggers (Traverse mode 9, Reaction mode 7)
-	// and ensures that even if the MCU evaluates hardware mode, NO pink/colored keys can ever appear.
-	for (let prof = 0; prof < 3; prof++) {
-		sendPacket(0xAA, [], 0, 0);
-		device.pause(5);
-		const cfg = new Array(66).fill(0);
-		cfg[0] = prof;
-		cfg[1] = 0x06; // Mode 6 (Static / Normal Lighting)
-		cfg[2] = 2;    // Speed = 2
-		cfg[3] = 4;    // Brightness = 0 (Dark: 4 - 0 = 4 in firmware format)
-		const baseOff = prof * 128;
-		sendPacket(0x06, cfg.slice(0, 56), baseOff, 56);
-		device.pause(5);
-		sendPacket(0x06, cfg.slice(56, 66), baseOff + 56, 10);
-		device.pause(5);
-	}
-
-	// Commit & apply static dark profile to EEPROM
-	sendPacket(0xAA, [], 0, 0);
-	device.pause(5);
-	sendPacket(0x02, [], 0, 0);
-	device.pause(10);
-
 	// Switch MCU to Real-Time SRAM Streaming Mode (Cmd 0x1C)
 	// In the official driver, Cmd 0x1C is sent ONCE when streaming begins to route LED driver to USB SRAM!
 	sendPacket(0xAA, [], 0, 0);
 	device.pause(5);
 	sendPacket(0x1C, [], 0, 0);
-	device.pause(10);
+	device.pause(5);
 
 	isInitialized = true;
 
@@ -312,10 +287,10 @@ export function onpacketDelayChanged() {
 
 export function onLightingModeChanged() {
 	if (LightingMode === "Hardware (Onboard)") {
-		// Signal MCU to reload active hardware profile from EEPROM
+		// Switch keyboard to hardware onboard profile without burning EEPROM flash
 		sendPacket(0xAA, [], 0, 0);
 		device.pause(5);
-		sendPacket(0x02, [], 0, 0);
+		sendPacket(0x01, [], 0, 0);
 	} else {
 		// Resuming software streaming
 		isInitialized = false;
@@ -324,6 +299,8 @@ export function onLightingModeChanged() {
 	}
 }
 
+let lastRenderTime = 0;
+
 export function Render() {
 	if (!isInitialized) {
 		Initialize();
@@ -331,6 +308,17 @@ export function Render() {
 	if (typeof LightingMode !== "undefined" && LightingMode === "Hardware (Onboard)") {
 		return;
 	}
+
+	// Strict hardware frame rate limiter: prevents USB bus saturation and protects 8051 MCU key scanning
+	const targetFps = (typeof refreshRate !== "undefined" && refreshRate.includes("60")) ? 60 : 
+	                  (typeof refreshRate !== "undefined" && refreshRate.includes("40")) ? 40 : 30;
+	const minInterval = Math.floor(1000 / targetFps) - 2;
+	const now = Date.now();
+	if (now - lastRenderTime < minInterval) {
+		return;
+	}
+	lastRenderTime = now;
+
 	sendColors();
 }
 
