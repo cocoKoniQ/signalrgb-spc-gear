@@ -10,6 +10,11 @@ using physical hotkeys:
 Requires Python 3 (standard library only, no pip dependencies needed).
 """
 
+import utils.net
+import utils.clients
+import utils.http_session
+import utils.transport
+import utils.session
 import ctypes
 from ctypes import wintypes
 import time

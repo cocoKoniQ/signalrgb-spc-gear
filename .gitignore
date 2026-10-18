@@ -15,5 +15,5 @@ scratch/
 
 # Node / Editor
 node_modules/
-.vscode/
 .idea/
+config.bat
